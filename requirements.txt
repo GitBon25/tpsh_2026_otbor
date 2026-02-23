@@ -1,0 +1,6 @@
+aiogram
+asyncpg
+pydantic
+pydantic-settings
+python-dotenv
+gigachat
