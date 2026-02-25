@@ -47,6 +47,8 @@ SCHEMA_PROMPT = """
 Ответ: SELECT COUNT(*) FROM videos
 Вопрос: Сколько просмотров приросло за 2025-08-20?
 Ответ: SELECT COALESCE(SUM(delta_views_count), 0) FROM video_snapshots WHERE created_at::date = '2025-08-20'
+Вопрос: Какой суммарный прирост комментариев получили все видео за первые 3 часа после публикации каждого из них?
+Ответ: SELECT COALESCE(SUM(vs.delta_comments_count), 0) FROM video_snapshots vs JOIN videos v ON v.id = vs.video_id WHERE vs.created_at >= v.video_created_at AND vs.created_at < v.video_created_at + INTERVAL '3 hour'
 """
 
 _ALLOWED = re.compile(r"^\s*select\b", re.IGNORECASE)

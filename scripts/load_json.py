@@ -17,7 +17,6 @@ def parse_ts(value: str | datetime) -> datetime:
     else:
         dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
 
-    # DB columns are TIMESTAMP (without timezone), normalize to naive UTC.
     if dt.tzinfo is not None:
         dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
     return dt
