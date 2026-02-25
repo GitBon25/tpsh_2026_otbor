@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import asyncpg
@@ -8,6 +9,51 @@ from bot.settings import settings
 
 
 DATA_PATH = Path("/app/data/videos.json")
+
+
+def parse_ts(value: str | datetime) -> datetime:
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+    # DB columns are TIMESTAMP (without timezone), normalize to naive UTC.
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+async def ensure_id_columns_are_text(conn: asyncpg.Connection) -> None:
+    rows = await conn.fetch(
+        """
+        SELECT table_name, column_name, data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND (
+            (table_name = 'videos' AND column_name IN ('id', 'creator_id'))
+            OR
+            (table_name = 'video_snapshots' AND column_name IN ('id', 'video_id'))
+          )
+        """
+    )
+
+    types = {(r["table_name"], r["column_name"]): r["data_type"] for r in rows}
+    needs_migration = any(t != "text" for t in types.values())
+    if not needs_migration:
+        return
+
+    await conn.execute(
+        """
+        ALTER TABLE video_snapshots DROP CONSTRAINT IF EXISTS video_snapshots_video_id_fkey;
+        ALTER TABLE videos ALTER COLUMN id TYPE TEXT USING id::text;
+        ALTER TABLE videos ALTER COLUMN creator_id TYPE TEXT USING creator_id::text;
+        ALTER TABLE video_snapshots ALTER COLUMN id TYPE TEXT USING id::text;
+        ALTER TABLE video_snapshots ALTER COLUMN video_id TYPE TEXT USING video_id::text;
+        ALTER TABLE video_snapshots
+            ADD CONSTRAINT video_snapshots_video_id_fkey
+            FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE;
+        """
+    )
 
 
 async def load() -> None:
@@ -24,6 +70,7 @@ async def load() -> None:
     )
 
     try:
+        await ensure_id_columns_are_text(conn)
         async with conn.transaction():
             for v in videos:
                 await conn.execute(
@@ -35,9 +82,9 @@ async def load() -> None:
                     VALUES ($1,$2,$3,$4,$5,$6,$7)
                     ON CONFLICT (id) DO NOTHING
                     """,
-                    int(v["id"]),
-                    int(v["creator_id"]),
-                    v["video_created_at"],
+                    str(v["id"]),
+                    str(v["creator_id"]),
+                    parse_ts(v["video_created_at"]),
                     int(v["views_count"]),
                     int(v["likes_count"]),
                     int(v["comments_count"]),
@@ -57,8 +104,8 @@ async def load() -> None:
                         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
                         ON CONFLICT (id) DO NOTHING
                         """,
-                        int(s["id"]),
-                        int(v["id"]),
+                        str(s["id"]),
+                        str(v["id"]),
                         int(s["views_count"]),
                         int(s["likes_count"]),
                         int(s["comments_count"]),
@@ -67,7 +114,7 @@ async def load() -> None:
                         int(s["delta_likes_count"]),
                         int(s["delta_comments_count"]),
                         int(s["delta_reports_count"]),
-                        s["created_at"],
+                        parse_ts(s["created_at"]),
                     )
     finally:
         await conn.close()

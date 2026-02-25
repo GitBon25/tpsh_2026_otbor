@@ -3,4 +3,4 @@ asyncpg
 pydantic
 pydantic-settings
 python-dotenv
-gigachat
+gigachat>=0.1.30
